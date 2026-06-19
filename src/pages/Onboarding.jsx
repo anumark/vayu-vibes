@@ -65,7 +65,7 @@ export default function Onboarding() {
       {/* Brand Header */}
       <div className="text-center mb-8">
         <h1 className="text-3xl font-light text-gray-900 tracking-tight flex items-center justify-center gap-1.5">
-          💨 <span className="font-semibold text-green-carbon">Vayu</span> Vibes
+          🍃 <span className="font-semibold text-green-carbon">Vayu</span> Vibes
         </h1>
         <p className="text-sm text-gray-400 mt-1">Carbon consciousness for Indian professionals</p>
       </div>

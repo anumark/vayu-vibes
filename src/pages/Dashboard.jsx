@@ -35,6 +35,61 @@ export default function Dashboard({ onTabChange }) {
     return Math.round(sum / recent.length);
   }, [logs]);
 
+  // WFH vs Office comparison insight computation
+  const wfhVsOfficeInsight = useMemo(() => {
+    const wfhLogs = logs.filter(log => log.work_location === 'home');
+    const officeLogs = logs.filter(log => log.work_location === 'office');
+    
+    if (wfhLogs.length >= 3 && officeLogs.length >= 3) {
+      const wfhTotal = wfhLogs.reduce((sum, log) => sum + log.total_kg_co2, 0);
+      const officeTotal = officeLogs.reduce((sum, log) => sum + log.total_kg_co2, 0);
+      
+      const wfh_avg = parseFloat((wfhTotal / wfhLogs.length).toFixed(2));
+      const office_avg = parseFloat((officeTotal / officeLogs.length).toFixed(2));
+      
+      const diff = parseFloat(Math.abs(wfh_avg - office_avg).toFixed(2));
+      const winner = wfh_avg < office_avg ? 'WFH' : 'Office';
+      
+      return {
+        show: true,
+        wfh_avg,
+        office_avg,
+        winner,
+        diff
+      };
+    }
+    return { show: false };
+  }, [logs]);
+
+  // Environmental equivalents saved calculation (baseline 16.5 kg CO2/day worst-case)
+  const totalSaved = useMemo(() => {
+    const baseline = 16.5;
+    return logs.reduce((sum, log) => sum + Math.max(0, baseline - log.total_kg_co2), 0);
+  }, [logs]);
+
+  const equivalents = useMemo(() => {
+    const kg = totalSaved;
+    return {
+      treesAbsorbed: parseFloat((kg / 21.7).toFixed(1)),     // one tree absorbs ~21.7 kg CO₂/year
+      flightsMumbaiDelhi: parseFloat((kg / 110).toFixed(1)), // ~110 kg CO₂ per economy seat
+      kmDriven: parseFloat((kg / 0.21).toFixed(0)),          // vs solo car
+    };
+  }, [totalSaved]);
+
+  const translationMessage = useMemo(() => {
+    const kg = totalSaved;
+    if (kg <= 0) return null;
+    
+    const eq = equivalents;
+    if (kg < 50) {
+      return `This month you saved the equivalent of not driving ${eq.kmDriven} km 🚗 compared to a solo car commute!`;
+    } else if (kg <= 200) {
+      return `This month you saved the equivalent of planting ${eq.treesAbsorbed} trees 🌳 (which absorb CO₂ all year)!`;
+    } else {
+      return `This month you saved the equivalent of avoiding ${eq.flightsMumbaiDelhi} economy seats on flights from Mumbai to Delhi ✈️!`;
+    }
+  }, [totalSaved, equivalents]);
+
   // Skeleton loading state
   if (loading) {
     return (
@@ -111,12 +166,50 @@ export default function Dashboard({ onTabChange }) {
       {/* 3. Weekly Trend Line Chart */}
       <WeeklyChart logs={logs} />
 
+      {/* Annual Impact Savings Translation Card */}
+      {translationMessage && (
+        <div className="material-card p-4.5 bg-gradient-to-br from-green-50/60 to-emerald-50/30 border border-green-100/50 rounded-2xl flex items-center gap-3 animate-scale-in">
+          <span className="text-3xl">🌱</span>
+          <div>
+            <h4 className="text-[10px] text-green-carbon uppercase font-bold tracking-wider">Your Environmental Impact</h4>
+            <p className="text-xs font-semibold text-gray-700 mt-1 leading-relaxed">
+              {translationMessage}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* 4. Streak Tracker */}
       <StreakDots 
         logs={logs} 
         currentStreak={currentStreak} 
         lastSevenDots={lastSevenDots}
       />
+
+      {/* WFH vs Office comparison card */}
+      {wfhVsOfficeInsight.show && (
+        <div className="material-card p-5 bg-gradient-to-br from-blue-50 to-indigo-50/30 border border-blue-100 flex flex-col gap-3 relative overflow-hidden animate-scale-in">
+          <div className="flex justify-between items-start">
+            <div className="flex items-center gap-2">
+              <span className="text-xl bg-white p-1.5 rounded-lg shadow-sm">📊</span>
+              <div>
+                <h4 className="text-[10px] text-blue-carbon uppercase font-bold tracking-wider">Workplace Comparison</h4>
+                <h3 className="text-sm font-semibold text-gray-800">WFH vs Office Footprint</h3>
+              </div>
+            </div>
+            <span className="bg-amber-100 text-amber-800 border border-amber-200 text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md">
+              Surprise Stat
+            </span>
+          </div>
+          <p className="text-xs text-gray-600 leading-relaxed font-semibold">
+            Your WFH days average <span className="font-bold text-gray-800">{wfhVsOfficeInsight.wfh_avg} kg CO₂</span>.
+            <br />
+            Your office days average <span className="font-bold text-gray-800">{wfhVsOfficeInsight.office_avg} kg CO₂</span>.
+            <br />
+            <span className="text-blue-carbon font-bold">{wfhVsOfficeInsight.winner}</span> is greener for you by <span className="font-bold text-blue-carbon">{wfhVsOfficeInsight.diff} kg/day</span>.
+          </p>
+        </div>
+      )}
 
       {/* 5. Insight Card */}
       <InsightCard />

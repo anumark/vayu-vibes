@@ -48,7 +48,7 @@ function MainLayout() {
       {/* Top Ambient Bar */}
       <header className="sticky top-0 bg-white/80 backdrop-blur-md border-b border-gray-100 z-40 px-4 py-3.5 flex justify-between items-center shadow-xs">
         <span className="font-semibold text-base text-gray-800 tracking-tight flex items-center gap-1">
-          💨 <span className="text-green-carbon font-bold">Vayu</span> Vibes
+          🍃 <span className="text-green-carbon font-bold">Vayu</span> Vibes
         </span>
         {user?.team_code && (
           <span className="bg-blue-50 text-blue-carbon text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border border-blue-100">

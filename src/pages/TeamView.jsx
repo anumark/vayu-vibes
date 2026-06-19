@@ -52,7 +52,7 @@ export default function TeamView() {
 
   // Nudge Action - Copy pre-filled message
   const handleNudge = () => {
-    const nudgeMsg = `Hey Eco-warriors! 💨 I'm tracking my carbon footprints on Vayu Vibes. My weekly total is ${leaderboardStats.currentUserWeekly} kg CO₂. Let's make this week green! Team Code: ${user?.team_code}`;
+    const nudgeMsg = `Hey Eco-warriors! 🍃 I'm tracking my carbon footprints on Vayu Vibes. My weekly total is ${leaderboardStats.currentUserWeekly} kg CO₂. Let's make this week green! Team Code: ${user?.team_code}`;
     navigator.clipboard.writeText(nudgeMsg);
     setCopied(true);
     setTimeout(() => setCopied(false), 3000);

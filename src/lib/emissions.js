@@ -9,13 +9,20 @@ export const COMMUTE_EMISSION_RATES = {
 };
 
 export const WFH_EMISSION_RATES = {
-  grid: 0.82,  // kg CO2 per kWh (India average)
+  grid: 0.757,  // CEA India 2024 (kg CO2 per kWh)
   solar: 0.04, // kg CO2 per kWh
-  mixed: 0.43  // kg CO2 per kWh (Average of Grid and Solar)
+  mixed: 0.40  // estimated 50/50 split
 };
 
 export const WORKDAY_HOURS = 8;
-export const WFH_POWER_DRAW_KWH = 0.15; // 0.15 kWh average draw
+
+export const WFH_DEVICES = {
+  laptop:  { watts: 45,   label: 'Laptop' },
+  monitor: { watts: 30,   label: 'External monitor' },
+  router:  { watts: 10,   label: 'Router / WiFi' },
+  lights:  { watts: 20,   label: 'Lights' },
+  ac:      { watts: 1500, label: 'Air conditioning' },
+};
 
 export const LUNCH_EMISSIONS = {
   walk: 0.0,
@@ -34,15 +41,35 @@ export function calculateCommuteEmissions(mode, distanceKm) {
   return rate * (distanceKm || 0);
 }
 
+export function wfhEmissions({ electricitySource, hasAC, workHours = 8 }) {
+  const baseKw = (45 + 30 + 10 + 20) / 1000      // 0.105 kW without AC
+  const acKw   = hasAC ? 1500 / 1000 : 0          // 1.5 kW if AC on
+  const totalKwh = (baseKw + acKw) * workHours
+
+  const factors = {
+    grid:  0.757,   // CEA India 2024
+    solar: 0.04,    // lifecycle only
+    mixed: 0.40,    // estimated 50/50 split
+  }
+  const factor = factors[electricitySource] || factors.grid
+  return parseFloat((totalKwh * factor).toFixed(3))
+}
+
 /**
  * Calculates WFH office energy emissions.
  * @param {string} source - 'grid', 'solar', 'mixed'
+ * @param {boolean} hasAC - AC running status
  * @returns {number} kg CO2
  */
-export function calculateWFHEmissions(source) {
-  const rate = WFH_EMISSION_RATES[source] ?? WFH_EMISSION_RATES.grid;
-  const powerUsed = WORKDAY_HOURS * WFH_POWER_DRAW_KWH; // 1.2 kWh
-  return powerUsed * rate;
+export function calculateWFHEmissions(source, hasAC = false) {
+  return wfhEmissions({ electricitySource: source, hasAC });
+}
+
+export const DAILY_WORST_CASE = 16.5;
+
+export function carbonScore(dailyKg) {
+  const raw = 100 - ((dailyKg / DAILY_WORST_CASE) * 100);
+  return Math.round(Math.max(0, Math.min(100, raw)));
 }
 
 /**
@@ -52,6 +79,7 @@ export function calculateWFHEmissions(source) {
  */
 export function calculateDailyEmissions(log) {
   const { workLocation, commuteMode, commuteKm, wfhElectricitySource, lunchMode } = log;
+  const hasAC = log.wfhHasAC ?? log.wfh_has_ac ?? false;
 
   let commuteKg = 0;
   let wfhKg = 0;
@@ -60,18 +88,15 @@ export function calculateDailyEmissions(log) {
   if (workLocation === 'office') {
     commuteKg = calculateCommuteEmissions(commuteMode, commuteKm);
   } else if (workLocation === 'home') {
-    wfhKg = calculateWFHEmissions(wfhElectricitySource);
+    wfhKg = calculateWFHEmissions(wfhElectricitySource, hasAC);
   }
 
   const totalKg = commuteKg + wfhKg + lunchKg;
-  
-  // Formula: 100 - ((daily_kg / 5.0) * 100) clamped to 0-100
-  const scoreRaw = 100 - ((totalKg / 5.0) * 100);
-  const carbonScore = Math.max(0, Math.min(100, Math.round(scoreRaw)));
+  const score = carbonScore(totalKg);
 
   return {
     totalKg: parseFloat(totalKg.toFixed(3)),
-    carbonScore,
+    carbonScore: score,
     breakdown: {
       commute: parseFloat(commuteKg.toFixed(3)),
       wfh: parseFloat(wfhKg.toFixed(3)),

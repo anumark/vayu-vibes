@@ -33,7 +33,21 @@ export const useAppStore = create((set, get) => ({
           await get().fetchLogs();
           await get().fetchTeamMembers();
         } else {
-          set({ isAuthenticated: false, loading: false });
+          // Check if there is a mock user in localStorage
+          const storedUser = localStorage.getItem('vayu_user');
+          if (storedUser) {
+            const parsedUser = JSON.parse(storedUser);
+            if (parsedUser.id === 'mock-user-123') {
+              set({ user: parsedUser, isAuthenticated: true });
+              await get().fetchLogs();
+              await get().fetchTeamMembers();
+            } else {
+              set({ isAuthenticated: false });
+            }
+          } else {
+            set({ isAuthenticated: false });
+          }
+          set({ loading: false });
         }
       } else {
         // LocalStorage Fallback Authentication check
@@ -41,8 +55,8 @@ export const useAppStore = create((set, get) => ({
         if (storedUser) {
           const parsedUser = JSON.parse(storedUser);
           set({ user: parsedUser, isAuthenticated: true });
-          get().fetchLogs();
-          get().fetchTeamMembers();
+          await get().fetchLogs();
+          await get().fetchTeamMembers();
         } else {
           set({ isAuthenticated: false });
         }
@@ -110,7 +124,7 @@ export const useAppStore = create((set, get) => ({
   // Fetch Profile
   fetchProfile: async (userId, email) => {
     try {
-      if (isSupabaseConfigured) {
+      if (isSupabaseConfigured && userId !== 'mock-user-123') {
         let { data, error } = await supabase
           .from('users')
           .select('*')
@@ -154,7 +168,7 @@ export const useAppStore = create((set, get) => ({
     try {
       const updatedUser = { ...currentUser, ...updates };
 
-      if (isSupabaseConfigured) {
+      if (isSupabaseConfigured && currentUser.id !== 'mock-user-123') {
         const { error } = await supabase
           .from('users')
           .update(updates)
@@ -184,7 +198,7 @@ export const useAppStore = create((set, get) => ({
     if (!currentUser) return;
 
     try {
-      if (isSupabaseConfigured) {
+      if (isSupabaseConfigured && currentUser.id !== 'mock-user-123') {
         const { data, error } = await supabase
           .from('daily_logs')
           .select('*')
@@ -223,6 +237,7 @@ export const useAppStore = create((set, get) => ({
         commute_mode: logData.workLocation === 'office' ? logData.commuteMode : null,
         commute_km: logData.workLocation === 'office' ? parseFloat(logData.commuteKm || 0) : null,
         wfh_electricity_source: logData.workLocation === 'home' ? logData.wfhElectricitySource : null,
+        wfh_has_ac: logData.workLocation === 'home' ? !!logData.wfhHasAC : false,
         lunch_mode: logData.lunchMode,
         total_kg_co2: calculations.totalKg,
         carbon_score: calculations.carbonScore,
@@ -230,7 +245,7 @@ export const useAppStore = create((set, get) => ({
         created_at: new Date().toISOString()
       };
 
-      if (isSupabaseConfigured) {
+      if (isSupabaseConfigured && currentUser.id !== 'mock-user-123') {
         // Upsert based on user_id and date
         const { error } = await supabase
           .from('daily_logs')
@@ -261,10 +276,11 @@ export const useAppStore = create((set, get) => ({
   // Join Team with 6-char Code
   joinTeam: async (teamCode) => {
     set({ loading: true, error: null });
+    const currentUser = get().user;
     try {
       const codeUpper = teamCode.toUpperCase();
       
-      if (isSupabaseConfigured) {
+      if (isSupabaseConfigured && currentUser && currentUser.id !== 'mock-user-123') {
         // Verify team exists
         const { data: teamData, error: teamErr } = await supabase
           .from('teams')
@@ -309,7 +325,7 @@ export const useAppStore = create((set, get) => ({
         created_at: new Date().toISOString()
       };
 
-      if (isSupabaseConfigured) {
+      if (isSupabaseConfigured && currentUser.id !== 'mock-user-123') {
         const { error } = await supabase
           .from('teams')
           .insert(newTeam);
@@ -340,7 +356,7 @@ export const useAppStore = create((set, get) => ({
     }
 
     try {
-      if (isSupabaseConfigured) {
+      if (isSupabaseConfigured && currentUser.id !== 'mock-user-123') {
         // Fetch users in same team
         const { data: members, error: membersErr } = await supabase
           .from('users')
@@ -425,8 +441,9 @@ export const useAppStore = create((set, get) => ({
   // Sign Out
   signOut: async () => {
     set({ loading: true });
+    const currentUser = get().user;
     try {
-      if (isSupabaseConfigured) {
+      if (isSupabaseConfigured && currentUser && currentUser.id !== 'mock-user-123') {
         await supabase.auth.signOut();
       }
       localStorage.removeItem('vayu_user');

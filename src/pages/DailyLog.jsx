@@ -18,6 +18,7 @@ export default function DailyLog() {
   const [commuteMode, setCommuteMode] = useState('metro');
   const [commuteKm, setCommuteKm] = useState(10);
   const [wfhElectricitySource, setWfhElectricitySource] = useState(user?.electricity_source || 'grid');
+  const [wfhHasAC, setWfhHasAC] = useState(false);
   const [lunchMode, setLunchMode] = useState('stay_in');
   const [stepsWalked, setStepsWalked] = useState(800);
   const [showSuccess, setShowSuccess] = useState(false);
@@ -44,6 +45,7 @@ export default function DailyLog() {
         setCommuteKm(existing.commute_km || 10);
       } else {
         setWfhElectricitySource(existing.wfh_electricity_source || 'grid');
+        setWfhHasAC(!!existing.wfh_has_ac);
       }
       setLunchMode(existing.lunch_mode);
       setStepsWalked(existing.steps_walked || 800);
@@ -52,6 +54,7 @@ export default function DailyLog() {
       setWorkLocation('home');
       setCommuteMode('metro');
       setWfhElectricitySource(user?.electricity_source || 'grid');
+      setWfhHasAC(false);
       setLunchMode('stay_in');
       setStepsWalked(800);
     }
@@ -74,6 +77,7 @@ export default function DailyLog() {
       commuteMode,
       commuteKm,
       wfhElectricitySource,
+      wfhHasAC,
       lunchMode,
       stepsWalked: lunchMode === 'walk' ? stepsWalked : 0
     };
@@ -154,6 +158,41 @@ export default function DailyLog() {
                   </button>
                 ))}
               </div>
+
+              {/* AC Toggle Checkbox */}
+              <div className="flex items-center gap-2 mt-3 pt-3 border-t border-gray-50">
+                <input
+                  type="checkbox"
+                  id="wfhHasAC"
+                  checked={wfhHasAC}
+                  onChange={(e) => setWfhHasAC(e.target.checked)}
+                  className="w-4 h-4 accent-green-carbon rounded cursor-pointer"
+                />
+                <label htmlFor="wfhHasAC" className="text-xs text-gray-700 font-semibold cursor-pointer">
+                  AC / air conditioning running today?
+                </label>
+              </div>
+
+              {/* Contextual Warning Card */}
+              {wfhHasAC && (
+                <div className="mt-3 p-4 bg-amber-50 border border-amber-200 rounded-2xl flex flex-col gap-2 animate-slide-down">
+                  <div className="flex justify-between items-start gap-2">
+                    <div className="flex gap-2">
+                      <span className="text-lg">⚠️</span>
+                      <div className="flex flex-col">
+                        <span className="text-xs font-bold text-amber-800">AC significantly increases your footprint today</span>
+                        <span className="text-[11px] text-amber-700 mt-0.5">+9.1 kg CO₂ vs no AC</span>
+                        <span className="text-[11px] text-amber-700 font-medium">Your WFH day with AC = 9.54 kg vs office day = ~2.1 kg</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex justify-end">
+                    <span className="bg-amber-100 text-amber-800 border border-amber-200 text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md">
+                      Office may be greener today
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
