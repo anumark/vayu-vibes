@@ -1,20 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import CommuteMap from '../components/CommuteMap';
-import { isSupabaseConfigured } from '../lib/supabase';
-import { useNavigate } from 'react-router-dom';
 
 /**
  * Onboarding Page - Initial flow if user hasn't set up coordinates
  * Asks for Home & Office spots via map picker, energy sources, and team setup.
  */
 export default function Onboarding() {
-  const { updateProfile, mockLogin, signInWithOtp, isAuthenticated } = useAppStore();
-  const navigate = useNavigate();
-  // If Supabase is configured, start at step 1 (OTP email entry)
-  // If already authenticated (magic link landed), jump to step 2
-  const [step, setStep] = useState(1);
-  const [otpSent, setOtpSent] = useState(false);
+  const { updateProfile, mockLogin } = useAppStore();
+  const [step, setStep] = useState(1); // 1: Login/Mock, 2: Map Setup, 3: Power & Team
   
   // Login fields
   const [email, setEmail] = useState('');
@@ -32,31 +26,11 @@ export default function Onboarding() {
   
   const { joinTeam, createTeam } = useAppStore();
 
-  // If already authenticated (e.g. arrived via magic link), skip login step
-  useEffect(() => {
-    if (isAuthenticated && step === 1) {
-      setStep(2);
-    }
-  }, [isAuthenticated]);
-
   const handleLoginSubmit = async (e) => {
     e.preventDefault();
     if (!email) return;
-
-    if (isSupabaseConfigured) {
-      // Real Supabase OTP — send magic link
-      const res = await signInWithOtp(email);
-      if (res.success) {
-        setOtpSent(true);
-        // The onAuthStateChange listener in useAppStore will auto-authenticate
-        // once the user clicks the link and the session is established.
-        // isAuthenticated will flip to true and the useEffect above will move to step 2.
-      }
-    } else {
-      // LocalStorage mock mode
-      await mockLogin(email, name || 'Eco Professional');
-      setStep(2);
-    }
+    await mockLogin(email, name || 'Eco Professional');
+    setStep(2);
   };
 
   const handleMapSubmit = () => {
@@ -82,8 +56,8 @@ export default function Onboarding() {
       await createTeam(newTeamName);
     }
 
-    // Navigate to dashboard (SPA-safe, no page reload)
-    navigate('/');
+    // Refresh page or trigger redirect
+    window.location.reload();
   };
 
   return (
@@ -108,64 +82,45 @@ export default function Onboarding() {
           </div>
         </div>
 
-        {/* STEP 1: Email Sign In */}
+        {/* STEP 1: Quick Email Sign In */}
         {step === 1 && (
-          otpSent ? (
-            <div className="flex flex-col items-center gap-4 py-4 animate-scale-in">
-              <div className="text-5xl">📬</div>
-              <h2 className="text-xl font-medium text-gray-800">Check your email</h2>
-              <p className="text-sm text-gray-400 text-center">
-                We sent a magic link to <span className="font-semibold text-gray-700">{email}</span>.
-                Click it to sign in — this tab will update automatically.
-              </p>
-              <button
-                onClick={() => setOtpSent(false)}
-                className="text-xs text-gray-400 underline mt-2"
-              >
-                Use a different email
-              </button>
+          <form onSubmit={handleLoginSubmit} className="flex flex-col gap-4 animate-scale-in">
+            <div className="text-center">
+              <h2 className="text-xl font-medium text-gray-800">Welcome to Vayu Vibes</h2>
+              <p className="text-xs text-gray-400 mt-1">Let's check carbon impact on your daily routines.</p>
             </div>
-          ) : (
-            <form onSubmit={handleLoginSubmit} className="flex flex-col gap-4 animate-scale-in">
-              <div className="text-center">
-                <h2 className="text-xl font-medium text-gray-800">Welcome to Vayu Vibes</h2>
-                <p className="text-xs text-gray-400 mt-1">Let's check carbon impact on your daily routines.</p>
-              </div>
 
-              {!isSupabaseConfigured && (
-                <div className="flex flex-col gap-1 mt-2">
-                  <label className="text-xs text-gray-500 font-semibold">Your Name</label>
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="Ananya Roy"
-                    className="p-3 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-green-carbon"
-                    required
-                  />
-                </div>
-              )}
+            <div className="flex flex-col gap-1 mt-2">
+              <label className="text-xs text-gray-500 font-semibold">Your Name</label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Ananya Roy"
+                className="p-3 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-green-carbon"
+                required
+              />
+            </div>
 
-              <div className="flex flex-col gap-1">
-                <label className="text-xs text-gray-500 font-semibold">Work Email</label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="ananya@company.com"
-                  className="p-3 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-green-carbon"
-                  required
-                />
-              </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-gray-500 font-semibold">Work Email</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="ananya@company.com"
+                className="p-3 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-green-carbon"
+                required
+              />
+            </div>
 
-              <button
-                type="submit"
-                className="w-full mt-2 py-3 bg-green-carbon hover:bg-green-600 text-white font-medium text-sm rounded-xl transition-all shadow-sm"
-              >
-                {isSupabaseConfigured ? 'Send Magic Link ✉️' : 'Get Started'}
-              </button>
-            </form>
-          )
+            <button
+              type="submit"
+              className="w-full mt-2 py-3 bg-green-carbon hover:bg-green-600 text-white font-medium text-sm rounded-xl transition-all shadow-sm"
+            >
+              Get Started
+            </button>
+          </form>
         )}
 
         {/* STEP 2: Draggable Maps Picker */}
