@@ -316,28 +316,37 @@ export default function DailyLog() {
     }
   };
 
+  // Always render toast at top level so it persists during the 2s window
+  // before the SuccessScreen swap
+  const toastEl = toast ? (
+    <div
+      style={{
+        position: 'fixed',
+        bottom: '96px',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        zIndex: 9999,
+        whiteSpace: 'nowrap',
+      }}
+      className="flex items-center gap-2 px-4 py-3 rounded-2xl shadow-lg text-sm font-medium bg-green-50 border border-green-200 text-green-800"
+    >
+      <span>✅</span>
+      <span>Daily log saved!</span>
+    </div>
+  ) : null;
+
   if (submitSuccess && savedLog) {
-    return <SuccessScreen log={savedLog} onEdit={() => setSubmitSuccess(false)} />;
+    return (
+      <>
+        {toastEl}
+        <SuccessScreen log={savedLog} onEdit={() => setSubmitSuccess(false)} />
+      </>
+    );
   }
 
   return (
     <div className="flex-1 px-4 py-6 max-w-md mx-auto w-full flex flex-col gap-6">
-      {toast && (
-        <div 
-          style={{
-            position: 'fixed',
-            bottom: '96px',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            zIndex: 9999,
-            whiteSpace: 'nowrap',
-          }}
-          className="flex items-center gap-2 px-4 py-3 rounded-2xl shadow-lg text-sm font-medium transition-all duration-300 bg-green-50 border border-green-200 text-green-800"
-        >
-          <span>✅</span>
-          <span>Daily log saved!</span>
-        </div>
-      )}
+      {toastEl}
 
       <div>
         <h2 className="text-2xl font-light text-gray-900">Check In Today</h2>
