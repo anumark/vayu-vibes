@@ -1,9 +1,97 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store/useAppStore';
-import { calculateHaversineDistance } from '../lib/googleMaps';
+import { calculateHaversineDistance, isGoogleMapsConfigured, loadGoogleMapsScript } from '../lib/googleMaps';
 import { useAQI } from '../hooks/useAQI';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { calculateDailyEmissions } from '../lib/emissions';
 import CommuteMap from '../components/CommuteMap';
 import AQICard from '../components/AQICard';
+
+// Timezone safe helper to format UTC dates to 'dd MMMM yyyy'
+const format = (dateObj, formatStr) => {
+  const day = String(dateObj.getUTCDate()).padStart(2, '0');
+  const months = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+  return `${day} ${months[dateObj.getUTCMonth()]} ${dateObj.getUTCFullYear()}`;
+};
+
+/**
+ * SuccessScreen Component - inline success view after successful check-in
+ */
+const SuccessScreen = ({ log, onEdit }) => {
+  const navigate = useNavigate();
+
+  return (
+    <div className="flex flex-col items-center gap-6 py-8 px-4 animate-scale-in">
+      {/* Icon + heading */}
+      <div className="text-5xl">✅</div>
+      <div className="text-center">
+        <h2 className="text-xl font-semibold text-gray-800">
+          Check-in saved!
+        </h2>
+        <p className="text-sm text-gray-400 mt-1">
+          {format(new Date(log.date), 'dd MMMM yyyy')}
+        </p>
+      </div>
+
+      {/* Mini summary card */}
+      <div className="w-full material-card p-4 flex flex-col gap-3">
+        <div className="flex justify-between items-center">
+          <span className="text-sm text-gray-500">🌱 Score today</span>
+          <span className="text-lg font-semibold text-green-600">
+            {log.score}
+          </span>
+        </div>
+        <div className="flex justify-between text-sm">
+          <span className="text-gray-500">🚇 Commute</span>
+          <span>{log.commuteKg.toFixed(3)} kg CO₂</span>
+        </div>
+        <div className="flex justify-between text-sm">
+          <span className="text-gray-500">🏠 Home office</span>
+          <span>{log.wfhKg.toFixed(3)} kg CO₂</span>
+        </div>
+        <div className="flex justify-between text-sm">
+          <span className="text-gray-500">🥗 Lunch break</span>
+          <span>{log.lunchKg.toFixed(3)} kg CO₂</span>
+        </div>
+        <div className="border-t border-gray-100 pt-3 flex justify-between text-sm font-semibold">
+          <span>Total</span>
+          <span>{log.totalKg.toFixed(3)} kg CO₂</span>
+        </div>
+      </div>
+
+      {/* Action buttons */}
+      <div className="w-full flex flex-col gap-3">
+        {/* Primary — go to dashboard */}
+        <button
+          onClick={() => navigate('/')}
+          className="w-full py-3.5 bg-green-carbon hover:bg-green-600 text-white font-semibold text-sm rounded-2xl transition-all flex items-center justify-center gap-2 cursor-pointer"
+        >
+          🏠 Go to Dashboard
+        </button>
+
+        {/* Secondary — view streak */}
+        <button
+          onClick={() => navigate('/?section=streak')}
+          className="w-full py-3.5 bg-orange-50 hover:bg-orange-100 text-orange-600 font-semibold text-sm rounded-2xl border border-orange-200 transition-all flex items-center justify-center gap-2 cursor-pointer"
+        >
+          🔥 View My Streak
+        </button>
+
+        {/* Tertiary — edit log */}
+        <button
+          onClick={onEdit}
+          className="w-full py-3 text-gray-400 text-sm underline hover:text-gray-600 transition-all cursor-pointer"
+        >
+          ✏️ Edit this log
+        </button>
+      </div>
+    </div>
+  );
+};
 
 /**
  * DailyLog Page - Simple activity checker
@@ -11,7 +99,10 @@ import AQICard from '../components/AQICard';
  */
 export default function DailyLog() {
   const { user, saveDailyLog, logs } = useAppStore();
+  const navigate = useNavigate();
   
+  const { home_lat, home_lng, office_lat, office_lng } = user || {};
+
   const todayStr = new Date().toISOString().split('T')[0];
   const [date, setDate] = useState(todayStr);
   const [workLocation, setWorkLocation] = useState('home');
@@ -21,19 +112,139 @@ export default function DailyLog() {
   const [wfhHasAC, setWfhHasAC] = useState(false);
   const [lunchMode, setLunchMode] = useState('stay_in');
   const [stepsWalked, setStepsWalked] = useState(800);
-  const [showSuccess, setShowSuccess] = useState(false);
 
-  // Auto-calculate distance between home and office profile spots
+  // New states for UX improvements
+  const [distanceSource, setDistanceSource] = useState('auto'); // 'auto' | 'manual'
+  const [autoCommuteKm, setAutoCommuteKm] = useState(10);
+  const [homeArea, setHomeArea] = useState('');
+  const [officeArea, setOfficeArea] = useState('');
+  const [googleMapsLoaded, setGoogleMapsLoaded] = useState(false);
+
+  // Post-submission success and toast states
+  const [submitSuccess, setSubmitSuccess] = useState(false);
+  const [savedLog, setSavedLog] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [toast, setToast] = useState(false);
+  const [hasExistingLog, setHasExistingLog] = useState(false);
+
+  // Load Google Maps script if configured
   useEffect(() => {
-    if (user?.home_lat && user?.office_lat) {
+    if (isGoogleMapsConfigured) {
+      loadGoogleMapsScript(() => {
+        setGoogleMapsLoaded(true);
+      });
+    }
+  }, []);
+
+  // Check if a log already exists for the selected date
+  useEffect(() => {
+    const checkExisting = async () => {
+      if (!user) return;
+      if (isSupabaseConfigured && supabase && user.id !== 'mock-user-123') {
+        try {
+          const { data: existing } = await supabase
+            .from('daily_logs')
+            .select('id')
+            .eq('user_id', user.id)
+            .eq('date', date)
+            .maybeSingle();
+          
+          setHasExistingLog(!!existing);
+        } catch (e) {
+          const localExisting = logs.find(log => log.date === date);
+          setHasExistingLog(!!localExisting);
+        }
+      } else {
+        const localExisting = logs.find(log => log.date === date);
+        setHasExistingLog(!!localExisting);
+      }
+    };
+    checkExisting();
+  }, [date, user, logs]);
+
+  // Sync / reverse-geocode home and office area names
+  useEffect(() => {
+    const geocodeToArea = (lat, lng, setArea, fallbackAddress) => {
+      if (window.google?.maps?.Geocoder) {
+        const geocoder = new window.google.maps.Geocoder();
+        geocoder.geocode({ location: { lat: parseFloat(lat), lng: parseFloat(lng) } }, (results, status) => {
+          if (status === 'OK' && results?.[0]?.formatted_address) {
+            const firstPart = results[0].formatted_address.split(',')[0];
+            setArea(firstPart);
+          } else if (fallbackAddress) {
+            setArea(fallbackAddress.split(',')[0]);
+          } else {
+            setArea(`${parseFloat(lat).toFixed(4)}° N, ${parseFloat(lng).toFixed(4)}° E`);
+          }
+        });
+      } else if (fallbackAddress) {
+        setArea(fallbackAddress.split(',')[0]);
+      } else {
+        setArea(`${parseFloat(lat).toFixed(4)}° N, ${parseFloat(lng).toFixed(4)}° E`);
+      }
+    };
+
+    if (home_lat && home_lng) {
+      geocodeToArea(home_lat, home_lng, setHomeArea, user?.home_address);
+    }
+    if (office_lat && office_lng) {
+      geocodeToArea(office_lat, office_lng, setOfficeArea, user?.office_address);
+    }
+  }, [user, googleMapsLoaded]);
+
+  // Initial auto-calculate distance between home and office spots (Haversine fallback)
+  useEffect(() => {
+    if (home_lat && office_lat) {
       const dist = calculateHaversineDistance(
-        user.home_lat, user.home_lng,
-        user.office_lat, user.office_lng
+        home_lat, home_lng,
+        office_lat, office_lng
       );
-      // Double the distance for round trip commute
-      setCommuteKm(parseFloat((dist * 2).toFixed(1)));
+      const initialRoundTrip = parseFloat((dist * 2).toFixed(1));
+      setCommuteKm(initialRoundTrip);
+      setAutoCommuteKm(initialRoundTrip);
+      setDistanceSource('auto');
+    } else {
+      setDistanceSource('manual');
     }
   }, [user]);
+
+  // Fetch matrix distance when office is active or commute mode changes
+  const fetchCommuteDistance = async () => {
+    if (!home_lat || !office_lat) return;
+    if (typeof google === 'undefined' || !google.maps) return;
+
+    const travelModeMap = {
+      metro:   google.maps.TravelMode.TRANSIT,
+      bus:     google.maps.TravelMode.TRANSIT,
+      carpool: google.maps.TravelMode.DRIVING,
+      solo_car: google.maps.TravelMode.DRIVING,
+      walk_bike: google.maps.TravelMode.BICYCLING,
+    };
+
+    const travelMode = travelModeMap[commuteMode] || google.maps.TravelMode.DRIVING;
+
+    const service = new google.maps.DistanceMatrixService();
+    service.getDistanceMatrix({
+      origins: [{ lat: parseFloat(home_lat), lng: parseFloat(home_lng) }],
+      destinations: [{ lat: parseFloat(office_lat), lng: parseFloat(office_lng) }],
+      travelMode: travelMode,
+    }, (response, status) => {
+      if (status === 'OK' && response?.rows?.[0]?.elements?.[0]?.distance) {
+        const meters = response.rows[0].elements[0].distance.value;
+        const km = parseFloat((meters / 1000).toFixed(1));
+        const roundTripKm = parseFloat((km * 2).toFixed(1));
+        setCommuteKm(roundTripKm);
+        setAutoCommuteKm(roundTripKm);
+        setDistanceSource('auto');
+      }
+    });
+  };
+
+  useEffect(() => {
+    if (workLocation === 'office' && (googleMapsLoaded || window.google?.maps)) {
+      fetchCommuteDistance();
+    }
+  }, [workLocation, commuteMode, googleMapsLoaded]);
 
   // Load existing log for the selected date if it exists to edit
   useEffect(() => {
@@ -61,8 +272,8 @@ export default function DailyLog() {
   }, [date, logs, user]);
 
   // Fetch AQI based on office location if working at office, else home location (or current coords fallback)
-  const aqiLat = workLocation === 'office' ? user?.office_lat : user?.home_lat;
-  const aqiLng = workLocation === 'office' ? user?.office_lng : user?.home_lng;
+  const aqiLat = workLocation === 'office' ? office_lat : home_lat;
+  const aqiLng = workLocation === 'office' ? office_lng : home_lng;
   
   const { aqiData, loading: aqiLoading } = useAQI(
     lunchMode === 'walk' ? aqiLat : null, 
@@ -82,23 +293,61 @@ export default function DailyLog() {
       stepsWalked: lunchMode === 'walk' ? stepsWalked : 0
     };
 
+    setIsSaving(true);
     const res = await saveDailyLog(payload);
+    setIsSaving(false);
     if (res.success) {
-      setShowSuccess(true);
-      setTimeout(() => setShowSuccess(false), 3000);
+      const emissions = calculateDailyEmissions(payload);
+      setSavedLog({
+        date: date,
+        score: emissions.carbonScore,
+        commuteKg: emissions.breakdown.commute,
+        wfhKg: emissions.breakdown.wfh,
+        lunchKg: emissions.breakdown.lunch,
+        totalKg: emissions.totalKg,
+      });
+
+      // Show toast briefly
+      setToast(true);
+      setTimeout(() => {
+        setToast(false);
+        setSubmitSuccess(true);
+      }, 2000);
     }
   };
 
+  if (submitSuccess && savedLog) {
+    return <SuccessScreen log={savedLog} onEdit={() => setSubmitSuccess(false)} />;
+  }
+
   return (
     <div className="flex-1 px-4 py-6 max-w-md mx-auto w-full flex flex-col gap-6">
+      {toast && (
+        <div 
+          style={{
+            position: 'fixed',
+            bottom: '96px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 9999,
+            whiteSpace: 'nowrap',
+          }}
+          className="flex items-center gap-2 px-4 py-3 rounded-2xl shadow-lg text-sm font-medium transition-all duration-300 bg-green-50 border border-green-200 text-green-800"
+        >
+          <span>✅</span>
+          <span>Daily log saved!</span>
+        </div>
+      )}
+
       <div>
         <h2 className="text-2xl font-light text-gray-900">Check In Today</h2>
         <p className="text-xs text-gray-400 mt-0.5">Log your working habits and daily carbon score</p>
       </div>
 
-      {showSuccess && (
-        <div className="bg-green-50 border border-green-200 text-green-carbon text-xs p-3.5 rounded-2xl flex items-center gap-2 animate-scale-in">
-          🎉 <span>Log saved successfully! Dashboard updated.</span>
+      {hasExistingLog && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-700 text-sm p-3.5 rounded-2xl flex items-center gap-2 animate-scale-in">
+          <span>✏️</span>
+          <span>You already logged today — saving will update your entry.</span>
         </div>
       )}
 
@@ -222,21 +471,89 @@ export default function DailyLog() {
                 </div>
               </div>
 
-              <div className="flex flex-col gap-1">
-                <div className="flex justify-between items-center text-xs text-gray-500 font-semibold uppercase">
-                  <span>Round Trip Distance</span>
-                  <span className="font-mono text-gray-800 text-xs font-bold">{commuteKm} km</span>
+              {/* Warning if no coordinates set */}
+              {(!home_lat || !office_lat) && (
+                <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-2xl p-4 flex flex-col gap-2 animate-slide-down">
+                  <div className="flex gap-2">
+                    <span className="text-base">📍</span>
+                    <div className="flex flex-col">
+                      <span className="text-xs font-bold text-amber-850">Set your home & office locations first</span>
+                      <span className="text-[11px] text-amber-700 mt-0.5">to auto-calculate your commute distance.</span>
+                    </div>
+                  </div>
+                  <div className="flex justify-end mt-1">
+                    <button
+                      type="button"
+                      onClick={() => navigate('/profile')}
+                      className="text-xs font-semibold text-amber-800 underline hover:text-amber-900 border-none bg-transparent p-0 cursor-pointer"
+                    >
+                      Go to Profile →
+                    </button>
+                  </div>
                 </div>
-                <input
-                  type="range"
-                  min="1"
-                  max="80"
-                  step="0.5"
-                  value={commuteKm}
-                  onChange={(e) => setCommuteKm(parseFloat(e.target.value))}
-                  className="w-full accent-blue-carbon h-1.5 bg-gray-100 rounded-lg appearance-none cursor-pointer mt-1"
-                />
-              </div>
+              )}
+
+              {/* Display auto-calculated distance card if available */}
+              {distanceSource === 'auto' && home_lat && office_lat && (
+                <div className="bg-white border border-gray-100 rounded-2xl p-4 flex flex-col gap-3 animate-slide-down">
+                  <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Round Trip Distance</span>
+                  <div className="flex items-center gap-2 text-sm text-gray-700">
+                    <span>📍</span>
+                    <span className="font-semibold text-xs text-gray-800">
+                      {homeArea || 'Home'} → {officeArea || 'Office'} → {homeArea || 'Home'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-baseline mt-1">
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-xl font-bold text-gray-800">{commuteKm} km</span>
+                      <span className="text-green-600 text-xs font-semibold">(auto-calculated)</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setDistanceSource('manual')}
+                      className="text-xs text-gray-400 underline border-none bg-transparent p-0 cursor-pointer hover:text-gray-600"
+                    >
+                      [Edit manually]
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Manual distance slider fallback */}
+              {(!home_lat || !office_lat || distanceSource === 'manual') && (
+                <div className="flex flex-col gap-1">
+                  <div className="flex justify-between items-center text-xs text-gray-500 font-semibold uppercase">
+                    <span>Round Trip Distance</span>
+                    <div className="flex items-center gap-2">
+                      {home_lat && office_lat && (
+                        <span className="text-[11px] text-gray-400 normal-case font-normal">
+                          ← Auto-calculated: {autoCommuteKm} km{' '}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCommuteKm(autoCommuteKm);
+                              setDistanceSource('auto');
+                            }}
+                            className="text-blue-carbon underline font-semibold cursor-pointer border-none bg-transparent p-0"
+                          >
+                            [Reset]
+                          </button>
+                        </span>
+                      )}
+                      <span className="font-mono text-gray-800 text-xs font-bold">{commuteKm} km</span>
+                    </div>
+                  </div>
+                  <input
+                    type="range"
+                    min="1"
+                    max="80"
+                    step="0.5"
+                    value={commuteKm}
+                    onChange={(e) => setCommuteKm(parseFloat(e.target.value))}
+                    className="w-full accent-blue-carbon h-1.5 bg-gray-100 rounded-lg appearance-none cursor-pointer mt-1"
+                  />
+                </div>
+              )}
 
               {/* Draw commute route on mock map */}
               {user?.home_lat && (
@@ -316,9 +633,22 @@ export default function DailyLog() {
         {/* Submit button */}
         <button
           type="submit"
-          className="w-full py-4 bg-green-carbon hover:bg-green-600 text-white font-semibold text-sm rounded-2xl transition-all shadow-sm flex items-center justify-center gap-2"
+          disabled={isSaving}
+          className={`w-full py-4 bg-green-carbon hover:bg-green-600 text-white font-semibold text-sm rounded-2xl transition-all shadow-sm flex items-center justify-center gap-2 ${
+            isSaving ? 'opacity-70 cursor-not-allowed' : ''
+          }`}
         >
-          📝 Save Daily Check-In
+          {isSaving ? (
+            <>
+              <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              Saving...
+            </>
+          ) : (
+            <>📝 Save Daily Check-In</>
+          )}
         </button>
 
       </form>

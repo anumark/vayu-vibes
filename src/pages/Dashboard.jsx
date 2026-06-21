@@ -1,4 +1,5 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useAppStore } from '../store/useAppStore';
 import ScoreRing from '../components/ScoreRing';
 import BreakdownBars from '../components/BreakdownBars';
@@ -14,6 +15,16 @@ import useStreak from '../hooks/useStreak';
 export default function Dashboard({ onTabChange }) {
   const { user, logs, loading } = useAppStore();
   const { currentStreak, lastSevenDots } = useStreak(logs);
+  const location = useLocation();
+
+  useEffect(() => {
+    if (location.search.includes('section=streak')) {
+      setTimeout(() => {
+        document.getElementById('streak-section')
+          ?.scrollIntoView({ behavior: 'smooth' });
+      }, 300);
+    }
+  }, [location]);
 
   // Retrieve today's log if created
   const todayStr = new Date().toISOString().split('T')[0];
@@ -180,11 +191,13 @@ export default function Dashboard({ onTabChange }) {
       )}
 
       {/* 4. Streak Tracker */}
-      <StreakDots 
-        logs={logs} 
-        currentStreak={currentStreak} 
-        lastSevenDots={lastSevenDots}
-      />
+      <div id="streak-section">
+        <StreakDots 
+          logs={logs} 
+          currentStreak={currentStreak} 
+          lastSevenDots={lastSevenDots}
+        />
+      </div>
 
       {/* WFH vs Office comparison card */}
       {wfhVsOfficeInsight.show && (

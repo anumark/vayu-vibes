@@ -164,37 +164,45 @@ export default function CommuteMap({
           map.fitBounds(bounds);
         } else if (mode === 'route') {
           // Commute Route Drawing
-          let routeColor = '#378ADD'; // default blue
-          if (commuteMode === 'metro' || commuteMode === 'walk_bike') routeColor = '#1D9E75'; // green
-          else if (commuteMode === 'solo_car') routeColor = '#E24B4A'; // red
-          else if (commuteMode === 'bus' || commuteMode === 'carpool') routeColor = '#EF9F27'; // amber
+          const directionsService = new window.google.maps.DirectionsService();
+          const commuteColors = {
+            metro:   '#378ADD',   // blue
+            bus:     '#1D9E75',   // green
+            carpool: '#EF9F27',   // amber
+            solo_car: '#E24B4A',  // red
+            car:     '#E24B4A',   // red
+            walk_bike: '#639922', // dark green
+            bike:    '#639922',   // dark green
+          };
 
-          // Draw polyline
-          const flightPath = new window.google.maps.Polyline({
-            path: [homeLatLng, officeLatLng],
-            geodesic: true,
-            strokeColor: routeColor,
-            strokeOpacity: 0.8,
-            strokeWeight: 4,
-            map: map
+          const directionsRenderer = new window.google.maps.DirectionsRenderer({
+            polylineOptions: {
+              strokeColor: commuteColors[commuteMode] || '#1D9E75',
+              strokeWeight: 4,
+            },
+            suppressMarkers: false,
           });
+          directionsRenderer.setMap(map);
 
-          // Add markers
-          new window.google.maps.Marker({
-            position: homeLatLng,
-            map: map,
-            title: 'Home 🏠',
-            icon: 'http://maps.google.com/mapfiles/ms/icons/green-dot.png'
+          directionsService.route({
+            origin: homeLatLng,
+            destination: officeLatLng,
+            travelMode: window.google.maps.TravelMode.DRIVING,
+          }, (result, status) => {
+            if (status === 'OK') {
+              directionsRenderer.setDirections(result);
+            } else {
+              // Fallback to straight polyline if directions API fails
+              new window.google.maps.Polyline({
+                path: [homeLatLng, officeLatLng],
+                geodesic: true,
+                strokeColor: commuteColors[commuteMode] || '#1D9E75',
+                strokeOpacity: 0.8,
+                strokeWeight: 4,
+                map: map
+              });
+            }
           });
-
-          new window.google.maps.Marker({
-            position: officeLatLng,
-            map: map,
-            title: 'Office 🏢',
-            icon: 'http://maps.google.com/mapfiles/ms/icons/blue-dot.png'
-          });
-
-          map.fitBounds(bounds);
         } else if (mode === 'lunch') {
           // Center at Office, draw 500m radius
           map.setCenter(officeLatLng);
