@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store/useAppStore';
 import CommuteMap from '../components/CommuteMap';
 
@@ -8,6 +9,7 @@ import CommuteMap from '../components/CommuteMap';
  */
 export default function Onboarding() {
   const { updateProfile, mockLogin } = useAppStore();
+  const navigate = useNavigate();
   const [step, setStep] = useState(1); // 1: Login/Mock, 2: Map Setup, 3: Power & Team
   
   // Login fields
@@ -56,8 +58,11 @@ export default function Onboarding() {
       await createTeam(newTeamName);
     }
 
-    // Refresh page or trigger redirect
-    window.location.reload();
+    // Wait briefly for Supabase session & store to propagate,
+    // then navigate to dashboard — prevents auth guard race condition.
+    // replace: true so the user can't press Back and return to onboarding.
+    await new Promise(resolve => setTimeout(resolve, 300));
+    navigate('/', { replace: true });
   };
 
   return (

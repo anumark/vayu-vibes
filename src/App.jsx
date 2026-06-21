@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { useAppStore } from './store/useAppStore';
 import Dashboard from './pages/Dashboard';
 import DailyLog from './pages/DailyLog';
@@ -17,14 +17,21 @@ function MainLayout() {
     initApp();
   }, [initApp]);
 
-  // Redirect to onboarding if authenticated but missing locations setup
+  // Redirect to onboarding if authenticated but missing locations setup;
+  // redirect away from /onboarding if locations are already configured.
   useEffect(() => {
     if (!loading && isAuthenticated) {
       if (!user?.home_lat || !user?.office_lat) {
-        navigate('/onboarding');
+        // Locations not yet set — send to onboarding
+        if (location.pathname !== '/onboarding') {
+          navigate('/onboarding', { replace: true });
+        }
+      } else if (location.pathname === '/onboarding') {
+        // Already onboarded — don't stay on the onboarding route
+        navigate('/', { replace: true });
       }
     }
-  }, [isAuthenticated, user, loading, navigate]);
+  }, [isAuthenticated, user, loading, navigate, location.pathname]);
 
   if (loading) {
     return (
@@ -65,6 +72,8 @@ function MainLayout() {
           <Route path="/team" element={<TeamView />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/onboarding" element={<Onboarding />} />
+          {/* Catch-all — redirect unknown paths to dashboard */}
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
 
