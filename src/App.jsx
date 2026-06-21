@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { useAppStore } from './store/useAppStore';
 import Dashboard from './pages/Dashboard';
@@ -13,14 +13,25 @@ function MainLayout() {
   const navigate = useNavigate();
   const location = useLocation();
 
+  // Guard against React StrictMode double-invoking effects, which would
+  // start two concurrent initApp() calls and create a race condition.
+  const initRan = useRef(false);
+
   useEffect(() => {
+    if (initRan.current) return;
+    initRan.current = true;
     initApp();
   }, [initApp]);
 
   // Redirect to onboarding if authenticated but missing locations setup;
   // redirect away from /onboarding if locations are already configured.
+  // IMPORTANT: require user !== null before evaluating home_lat.
+  // Between set({ isAuthenticated: true }) and set({ user: data }),
+  // there is a brief render where isAuthenticated=true but user=null.
+  // Without the null guard, the check !user?.home_lat would fire incorrectly
+  // and redirect an existing user to /onboarding.
   useEffect(() => {
-    if (!loading && isAuthenticated) {
+    if (!loading && isAuthenticated && user !== null) {
       if (!user?.home_lat || !user?.office_lat) {
         // Locations not yet set — send to onboarding
         if (location.pathname !== '/onboarding') {

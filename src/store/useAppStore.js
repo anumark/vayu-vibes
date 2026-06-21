@@ -28,12 +28,14 @@ export const useAppStore = create((set, get) => ({
       if (isSupabaseConfigured) {
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
+          // Keep loading: true while fetching — guards won't fire mid-fetch
           set({ isAuthenticated: true });
           await get().fetchProfile(session.user.id, session.user.email);
           await get().fetchLogs();
           await get().fetchTeamMembers();
+          set({ loading: false }); // ← was missing: spinner never cleared for real sessions
         } else {
-          // Check if there is a mock user in localStorage
+          // No Supabase session — fall back to mock localStorage user
           const storedUser = localStorage.getItem('vayu_user');
           if (storedUser) {
             const parsedUser = JSON.parse(storedUser);
@@ -49,6 +51,32 @@ export const useAppStore = create((set, get) => ({
           }
           set({ loading: false });
         }
+
+        // Listen for async auth events (magic-link sign-in arrives AFTER
+        // getSession() returns null, so we must handle onAuthStateChange).
+        // Stored on window so it survives React StrictMode's double-invoke
+        // without creating duplicate listeners.
+        if (!window.__vayuAuthListener) {
+          const { data: { subscription } } = supabase.auth.onAuthStateChange(
+            async (_event, session) => {
+              if (_event === 'SIGNED_IN' && session?.user) {
+                const alreadyAuthed = get().isAuthenticated;
+                if (!alreadyAuthed) {
+                  set({ loading: true, isAuthenticated: true });
+                  await get().fetchProfile(session.user.id, session.user.email);
+                  await get().fetchLogs();
+                  await get().fetchTeamMembers();
+                  set({ loading: false });
+                }
+              } else if (_event === 'SIGNED_OUT') {
+                set({ user: null, logs: [], team: null, teamMembers: [],
+                      isAuthenticated: false, loading: false });
+              }
+            }
+          );
+          window.__vayuAuthListener = subscription;
+        }
+
       } else {
         // LocalStorage Fallback Authentication check
         const storedUser = localStorage.getItem('vayu_user');
