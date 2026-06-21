@@ -26,6 +26,23 @@ export const useAppStore = create((set, get) => ({
     set({ loading: true, error: null });
     try {
       if (isSupabaseConfigured) {
+        // Subscribe to auth state changes (handles magic link redirects automatically)
+        supabase.auth.onAuthStateChange(async (event, session) => {
+          if (session?.user) {
+            set({ isAuthenticated: true });
+            await get().fetchProfile(session.user.id, session.user.email);
+            await get().fetchLogs();
+            await get().fetchTeamMembers();
+          } else {
+            // Only clear auth if we're not in mock mode
+            const storedUser = localStorage.getItem('vayu_user');
+            if (!storedUser || JSON.parse(storedUser).id !== 'mock-user-123') {
+              set({ user: null, isAuthenticated: false, loading: false });
+            }
+          }
+        });
+
+        // Also check current session immediately (for page reload / initial visit)
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
           set({ isAuthenticated: true });
