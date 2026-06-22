@@ -188,41 +188,37 @@ function MainLayout() {
   }, [checkUserState, initApp, navigate]);
 
   // -------------------------------------------------------------------------
-  // Re-check after onboarding completes
-  // When Onboarding.jsx calls navigate('/') after saving the profile,
-  // location.pathname changes to '/' but authStatus is still 'onboarding'.
-  // Detect this and re-run checkUserOnboarding so authStatus flips to 'ready'.
+  // Onboarding completion detector
   // -------------------------------------------------------------------------
+  // When Onboarding's handleFinish calls updateProfile(), the Zustand store
+  // synchronously sets user.home_lat before the 300ms navigate() delay fires.
+  // Watching that here lets us promote authStatus → 'ready' immediately, so
+  // when navigate('/') triggers a re-render, the routing guard no longer
+  // bounces the user back to /onboarding.
   useEffect(() => {
-    if (authStatus !== 'onboarding') return;
-    if (location.pathname === '/onboarding') return;
-
-    // User has navigated away from /onboarding — re-check their profile
-    const recheck = async () => {
-      setAuthStatus('loading');
-      try {
-        if (!isSupabaseConfigured || !supabase) {
-          const stored = localStorage.getItem('vayu_user');
-          if (stored) {
-            const u = JSON.parse(stored);
-            const done = u.home_lat != null && u.office_lat != null;
-            setAuthStatus(done ? 'ready' : 'onboarding');
-          } else {
-            setAuthStatus('unauthenticated');
-          }
-          return;
-        }
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session?.user) { setAuthStatus('unauthenticated'); return; }
-        const result = await checkUserOnboarding(session.user.id);
-        setAuthStatus(result === 'done' ? 'ready' : 'onboarding');
-      } catch {
-        setAuthStatus('ready'); // default to ready on error
-      }
-    };
-    recheck();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.pathname]);
+    // Promote authStatus → 'ready' when onboarding data lands in the store.
+    //
+    // Two scenarios handled here:
+    //
+    // A) authStatus === 'onboarding'
+    //    Real Supabase session exists, user has no home_lat yet.
+    //    updateProfile() sets user.home_lat → fire here.
+    //
+    // B) authStatus === 'unauthenticated'  ← THE VERCEL BUG
+    //    Supabase is configured but Onboarding step 1 uses mockLogin (not
+    //    supabase.auth OTP), so getSession() returns null → boot() sets
+    //    authStatus='unauthenticated'. The store user IS populated by
+    //    mockLogin, but the detector was only watching 'onboarding'.
+    //    Without this branch, authStatus stays 'unauthenticated' forever
+    //    after handleFinish, and every navigate('/') re-renders <Onboarding/>.
+    if (
+      (authStatus === 'onboarding' || authStatus === 'unauthenticated') &&
+      user?.home_lat != null &&
+      user?.office_lat != null
+    ) {
+      setAuthStatus('ready');
+    }
+  }, [authStatus, user?.home_lat, user?.office_lat]);
 
   // -------------------------------------------------------------------------
   // Routing based on authStatus
