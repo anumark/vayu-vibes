@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store/useAppStore';
 import CommuteMap from '../components/CommuteMap';
 import { isGoogleMapsConfigured, loadGoogleMapsScript } from '../lib/googleMaps';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 /**
  * Profile Page - User profile settings and configurations
@@ -9,6 +11,26 @@ import { isGoogleMapsConfigured, loadGoogleMapsScript } from '../lib/googleMaps'
  */
 export default function Profile() {
   const { user, updateProfile, signOut } = useAppStore();
+  const navigate = useNavigate();
+
+  // Explicit sign-out: clears Supabase session, Zustand store,
+  // and the global auth listener so no duplicate navigation fires.
+  const handleSignOut = async () => {
+    // Remove the auth listener before signing out so its SIGNED_OUT
+    // handler doesn't race with our explicit navigate below.
+    if (window.__vayuAuthListener) {
+      window.__vayuAuthListener.unsubscribe();
+      window.__vayuAuthListener = null;
+    }
+    if (isSupabaseConfigured && supabase) {
+      await supabase.auth.signOut();
+    }
+    // Clear Zustand + localStorage
+    await signOut();
+    // Always go to root — MainLayout will show the unauthenticated
+    // Onboarding/login screen (step 1) because authStatus → 'unauthenticated'
+    navigate('/', { replace: true });
+  };
 
   const [name, setName] = useState(user?.name || '');
   const [electricity, setElectricity] = useState(user?.electricity_source || 'grid');
@@ -443,7 +465,7 @@ export default function Profile() {
                 Cancel
               </button>
               <button
-                onClick={signOut}
+                onClick={handleSignOut}
                 className="flex-1 py-2 text-xs font-semibold text-white bg-red-carbon rounded-xl hover:bg-red-650 transition-all cursor-pointer"
               >
                 Yes, sign out

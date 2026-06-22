@@ -124,8 +124,10 @@ export default function DailyLog() {
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [savedLog, setSavedLog] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [toast, setToast] = useState(false);
+  // null | 'success' | 'error'
+  const [toast, setToast] = useState(null);
   const [hasExistingLog, setHasExistingLog] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
 
   // Load Google Maps script if configured
   useEffect(() => {
@@ -296,6 +298,7 @@ export default function DailyLog() {
     setIsSaving(true);
     const res = await saveDailyLog(payload);
     setIsSaving(false);
+
     if (res.success) {
       const emissions = calculateDailyEmissions(payload);
       setSavedLog({
@@ -307,31 +310,38 @@ export default function DailyLog() {
         totalKg: emissions.totalKg,
       });
 
-      // Show toast briefly
-      setToast(true);
+      // Flash success toast for 2500ms, then show SuccessScreen
+      setToast('success');
       setTimeout(() => {
-        setToast(false);
+        setToast(null);
         setSubmitSuccess(true);
-      }, 2000);
+      }, 2500);
+    } else {
+      // Show error toast for 3000ms
+      setToast('error');
+      setTimeout(() => setToast(null), 3000);
     }
   };
 
-  // Always render toast at top level so it persists during the 2s window
-  // before the SuccessScreen swap
+  // Rendered at top level so the toast persists across the SuccessScreen swap.
+  // bottom: 88px sits above the ~64px bottom nav bar.
   const toastEl = toast ? (
     <div
       style={{
         position: 'fixed',
-        bottom: '96px',
+        bottom: '88px',
         left: '50%',
         transform: 'translateX(-50%)',
         zIndex: 9999,
         whiteSpace: 'nowrap',
       }}
-      className="flex items-center gap-2 px-4 py-3 rounded-2xl shadow-lg text-sm font-medium bg-green-50 border border-green-200 text-green-800"
+      className={`flex items-center gap-2 px-5 py-3 rounded-2xl shadow-lg text-sm font-medium animate-fade-in ${
+        toast === 'success'
+          ? 'bg-green-50 border border-green-200 text-green-800'
+          : 'bg-red-50 border border-red-200 text-red-800'
+      }`}
     >
-      <span>✅</span>
-      <span>Daily log saved!</span>
+      {toast === 'success' ? '✅ Daily log saved!' : '❌ Could not save. Please try again.'}
     </div>
   ) : null;
 
@@ -655,10 +665,23 @@ export default function DailyLog() {
               </svg>
               Saving...
             </>
+          ) : isEditing ? (
+            <>✏️ Update Check-In</>
           ) : (
-            <>📝 Save Daily Check-In</>
+            <>💾 Save Daily Check-In</>
           )}
         </button>
+
+        {/* Tertiary update button — only visible when a log already exists */}
+        {hasExistingLog && (
+          <button
+            type="button"
+            onClick={() => setIsEditing(true)}
+            className="w-full py-3 text-sm text-gray-400 hover:text-gray-600 underline transition-all"
+          >
+            ✏️ Update today's log
+          </button>
+        )}
 
       </form>
     </div>
